@@ -1,27 +1,9 @@
+use crate::minigrep_error::MinigrepArgsError;
 use std::{
-    env, fmt,
+    env,
     path::{Path, PathBuf},
 };
 
-pub enum MinigrepArgsError {
-    QueryMissing,
-    PathMissing,
-    QueryWhitespace,
-    PathNotFound(PathBuf),
-}
-
-impl fmt::Debug for MinigrepArgsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::QueryMissing => write!(f, "Provide a search query."),
-            Self::PathMissing => write!(f, "Provide a file path."),
-            Self::QueryWhitespace => write!(f, "Search query cannot include whitespace."),
-            Self::PathNotFound(path) => write!(f, "Could not find path '{}'.", path.display()),
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct MinigrepArgs {
     query: String,
     path: PathBuf,
@@ -30,24 +12,21 @@ pub struct MinigrepArgs {
 impl MinigrepArgs {
     #[cfg(test)]
     pub fn new(query: &str, path: &str) -> Result<Self, MinigrepArgsError> {
-        let minigrep_args = Self {
+        Self {
             query: String::from(query),
             path: PathBuf::from(path),
-        };
-        minigrep_args.validate()?;
-        Ok(minigrep_args)
+        }
+        .validate()
     }
 
     pub fn from_env_args() -> Result<Self, MinigrepArgsError> {
         let mut args = env::args().skip(1);
         let query = args.next().ok_or(MinigrepArgsError::QueryMissing)?;
         let path = PathBuf::from(args.next().ok_or(MinigrepArgsError::PathMissing)?);
-        let minigrep_args = Self { query, path };
-        minigrep_args.validate()?;
-        Ok(minigrep_args)
+        Self { query, path }.validate()
     }
 
-    fn validate(&self) -> Result<(), MinigrepArgsError> {
+    fn validate(self) -> Result<Self, MinigrepArgsError> {
         if self.query.split_whitespace().nth(1).is_some() {
             return Err(MinigrepArgsError::QueryWhitespace);
         }
@@ -55,7 +34,7 @@ impl MinigrepArgs {
             return Err(MinigrepArgsError::PathNotFound(self.path.to_path_buf()));
         }
 
-        Ok(())
+        Ok(self)
     }
 
     pub fn query(&self) -> &str {
