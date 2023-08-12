@@ -1,17 +1,18 @@
 use std::{
     collections::HashMap,
-    fmt::Display,
+    fmt::Debug,
     path::{Path, PathBuf},
 };
 
 pub struct MinigrepResults {
+    quiet: bool,
     findings: HashMap<PathBuf, Vec<String>>,
 }
 
 impl MinigrepResults {
-    pub fn new() -> Self {
+    pub fn new(quiet: bool) -> Self {
         let findings = HashMap::new();
-        Self { findings }
+        Self { quiet, findings }
     }
 
     pub fn add_file(&mut self, file_path: &Path) {
@@ -26,12 +27,30 @@ impl MinigrepResults {
                 .insert(file_path.to_path_buf(), vec![finding.to_string()]);
         }
     }
+
+    pub fn findings(&self) -> &HashMap<PathBuf, Vec<String>> {
+        &self.findings
+    }
 }
 
-impl Display for MinigrepResults {
+impl Debug for MinigrepResults {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Files searched: {}", self.findings.len())?;
-        writeln!(f, "")
+        if !self.quiet {
+            writeln!(f, "Files searched: {}", self.findings.len())?;
+        }
+        for (file_path, findings_list) in &self.findings {
+            if !self.quiet {
+                writeln!(f, "\tFrom file '{}':", file_path.display())?;
+            }
+            for finding in findings_list {
+                if !self.quiet {
+                    write!(f, "\t\t")?;
+                }
+                writeln!(f, "{finding}")?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -41,7 +60,7 @@ mod results_tests {
 
     #[test]
     fn results_add_finding_succeeds() {
-        let mut results = MinigrepResults::new();
+        let mut results = MinigrepResults::new(false);
         results.add_finding(&PathBuf::from("test.txt"), "finding 1");
         results.add_finding(&PathBuf::from("test.txt"), "finding 2");
 

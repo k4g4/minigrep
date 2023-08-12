@@ -1,38 +1,75 @@
-use crate::error::MinigrepArgsError;
-use std::path::{Path, PathBuf};
+use crate::error::{MinigrepArgsError, MinigrepError};
+use std::path::PathBuf;
 
 pub struct MinigrepArgs {
     query: String,
-    path: PathBuf,
+    paths: Vec<PathBuf>,
+    quiet: bool,
 }
 
 impl MinigrepArgs {
-    #[cfg(test)]
-    pub fn build(query: &str, path: &str) -> Result<Self, MinigrepArgsError> {
+    pub fn build(query: &str, paths: &[&str]) -> Result<Self, MinigrepError> {
         Self {
             query: String::from(query),
-            path: PathBuf::from(path),
+            paths: Vec::<PathBuf>::from_iter(paths.iter().map(PathBuf::from)),
+            quiet: false,
         }
         .validate()
     }
 
-    pub fn from_strings(
+    pub fn from_arg_strings(
         args: &mut impl Iterator<Item = String>,
-    ) -> Result<Self, MinigrepArgsError> {
-        let query = args.next().ok_or(MinigrepArgsError::QueryMissing)?;
-        let path = args.next().ok_or(MinigrepArgsError::PathMissing)?;
-        let path = PathBuf::from(path);
-        Self { query, path }.validate()
-    }
+    ) -> Result<Self, MinigrepError> {
+        let mut options = vec![];
+        let mut query = String::new();
+        let mut paths = Vec::<PathBuf>::new();
 
-    fn validate(self) -> Result<Self, MinigrepArgsError> {
-        if self.query.split_whitespace().nth(1).is_some() {
-            return Err(MinigrepArgsError::QueryWhitespace);
+        while let Some(arg) = args.next() {
+            if ["-h", "--help"].contains(&arg.as_str()) {
+                return Err(MinigrepError::Help);
+            }
+            if arg.starts_with('-') {
+                options.push(arg);
+            } else {
+                // all options have been read, just query and path args remaining
+                query = arg;
+                while let Some(arg) = args.next() {
+                    paths.push(PathBuf::from(arg));
+                }
+                break;
+            }
         }
 
-        let accessible = self.path.is_dir() || self.path.is_file();
-        if !self.path.try_exists().is_ok_and(|success| success) || !accessible {
-            return Err(MinigrepArgsError::PathInaccessible(self.path.to_path_buf()));
+        if query.is_empty() {
+            return Err(MinigrepError::BadArgs(MinigrepArgsError::QueryMissing));
+        }
+        if paths.is_empty() {
+            return Err(MinigrepError::BadArgs(MinigrepArgsError::PathMissing));
+        }
+
+        let mut quiet = false;
+        for option in options {
+            if ["-q", "--quiet"].contains(&option.as_str()) {
+                quiet = true;
+            }
+        }
+
+        Self {
+            query,
+            paths,
+            quiet,
+        }
+        .validate()
+    }
+
+    fn validate(self) -> Result<Self, MinigrepError> {
+        for path in &self.paths {
+            let accessible = path.is_dir() || path.is_file();
+            if !path.try_exists().is_ok_and(|success| success) || !accessible {
+                return Err(MinigrepError::BadArgs(MinigrepArgsError::PathInaccessible(
+                    path.to_path_buf(),
+                )));
+            }
         }
 
         Ok(self)
@@ -42,8 +79,12 @@ impl MinigrepArgs {
         self.query.as_str()
     }
 
-    pub fn path(&self) -> &Path {
-        self.path.as_path()
+    pub fn paths(&self) -> &Vec<PathBuf> {
+        &self.paths
+    }
+
+    pub fn quiet(&self) -> bool {
+        self.quiet
     }
 }
 
@@ -52,19 +93,20 @@ mod minigrep_args_tests {
     use super::*;
 
     #[test]
-    fn minigrep_args_succeeds() -> Result<(), MinigrepArgsError> {
+    fn minigrep_args_succeeds() -> Result<(), MinigrepError> {
         let query = "query";
-        let path = "test.txt";
-        let minigrep_args = MinigrepArgs::build(query, path)?;
+        let paths = ["test.txt"];
+        let args = MinigrepArgs::build(query, &paths)?;
 
-        assert_eq!(minigrep_args.query(), query);
-        assert_eq!(minigrep_args.path().display().to_string(), path);
+        assert_eq!(args.query(), query);
+        assert_eq!(args.paths()[0].as_os_str(), paths[0]);
 
-        let args = vec!["query".to_string(), "test.txt".to_string()];
-        let minigrep_args = MinigrepArgs::from_strings(&mut args.into_iter())?;
+        let args = ["query", "test.txt", "test_dir"];
+        let args = MinigrepArgs::from_arg_strings(&mut args.iter().map(|&x| x.to_string()))?;
 
-        assert_eq!(minigrep_args.query(), query);
-        assert_eq!(minigrep_args.path().display().to_string(), path);
+        assert_eq!(args.query(), "query");
+        assert_eq!(args.paths()[0].as_os_str(), "test.txt");
+        assert_eq!(args.paths()[1].as_os_str(), "test_dir");
 
         Ok(())
     }
@@ -72,34 +114,17 @@ mod minigrep_args_tests {
     #[test]
     fn minigrep_args_path_not_found() {
         let query = "query";
-        let path = "";
+        let paths = [""];
 
-        if let Err(error) = MinigrepArgs::build(query, path) {
+        if let Err(error) = MinigrepArgs::build(query, &paths) {
             match error {
-                MinigrepArgsError::PathInaccessible(_) => {}
+                MinigrepError::BadArgs(MinigrepArgsError::PathInaccessible(_)) => {}
                 _ => {
-                    panic!("Error besides PathNotFound returned from MinigrepArgs::new.");
+                    panic!("Error besides PathInaccessible returned from MinigrepArgs::build.");
                 }
             }
         } else {
-            panic!("Did not receive PathNotFound error from MinigrepArgs::new.");
-        }
-    }
-
-    #[test]
-    fn minigrep_args_whitespace_query() {
-        let query = "query query";
-        let path = "test.txt";
-
-        if let Err(error) = MinigrepArgs::build(query, path) {
-            match error {
-                MinigrepArgsError::QueryWhitespace => {}
-                _ => {
-                    panic!("Error besides QueryWhitespace returned from MinigrepArgs::new.");
-                }
-            }
-        } else {
-            panic!("Did not receive QueryWhitespace error from MinigrepArgs::new.");
+            panic!("Did not receive PathInaccessible error from MinigrepArgs::build.");
         }
     }
 }
