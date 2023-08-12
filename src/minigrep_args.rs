@@ -1,8 +1,5 @@
 use crate::minigrep_error::MinigrepArgsError;
-use std::{
-    env,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 pub struct MinigrepArgs {
     query: String,
@@ -19,10 +16,12 @@ impl MinigrepArgs {
         .validate()
     }
 
-    pub fn from_env_args() -> Result<Self, MinigrepArgsError> {
-        let mut args = env::args().skip(1);
+    pub fn from_strings(
+        args: &mut impl Iterator<Item = String>,
+    ) -> Result<Self, MinigrepArgsError> {
         let query = args.next().ok_or(MinigrepArgsError::QueryMissing)?;
-        let path = PathBuf::from(args.next().ok_or(MinigrepArgsError::PathMissing)?);
+        let path = args.next().ok_or(MinigrepArgsError::PathMissing)?;
+        let path = PathBuf::from(path);
         Self { query, path }.validate()
     }
 
@@ -55,6 +54,12 @@ mod minigrep_args_tests {
         let query = "query";
         let path = "test.txt";
         let minigrep_args = MinigrepArgs::new(query, path)?;
+
+        assert_eq!(minigrep_args.query(), query);
+        assert_eq!(minigrep_args.path().display().to_string(), path);
+
+        let args = vec!["query".to_string(), "test.txt".to_string()];
+        let minigrep_args = MinigrepArgs::from_strings(&mut args.into_iter())?;
 
         assert_eq!(minigrep_args.query(), query);
         assert_eq!(minigrep_args.path().display().to_string(), path);
