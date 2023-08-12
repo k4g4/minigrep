@@ -1,4 +1,4 @@
-use crate::minigrep_error::MinigrepArgsError;
+use crate::error::MinigrepArgsError;
 use std::path::{Path, PathBuf};
 
 pub struct MinigrepArgs {
@@ -8,7 +8,7 @@ pub struct MinigrepArgs {
 
 impl MinigrepArgs {
     #[cfg(test)]
-    pub fn new(query: &str, path: &str) -> Result<Self, MinigrepArgsError> {
+    pub fn build(query: &str, path: &str) -> Result<Self, MinigrepArgsError> {
         Self {
             query: String::from(query),
             path: PathBuf::from(path),
@@ -29,8 +29,10 @@ impl MinigrepArgs {
         if self.query.split_whitespace().nth(1).is_some() {
             return Err(MinigrepArgsError::QueryWhitespace);
         }
-        if !self.path.try_exists().is_ok_and(|success| success) {
-            return Err(MinigrepArgsError::PathNotFound(self.path.to_path_buf()));
+
+        let accessible = self.path.is_dir() || self.path.is_file();
+        if !self.path.try_exists().is_ok_and(|success| success) || !accessible {
+            return Err(MinigrepArgsError::PathInaccessible(self.path.to_path_buf()));
         }
 
         Ok(self)
@@ -53,7 +55,7 @@ mod minigrep_args_tests {
     fn minigrep_args_succeeds() -> Result<(), MinigrepArgsError> {
         let query = "query";
         let path = "test.txt";
-        let minigrep_args = MinigrepArgs::new(query, path)?;
+        let minigrep_args = MinigrepArgs::build(query, path)?;
 
         assert_eq!(minigrep_args.query(), query);
         assert_eq!(minigrep_args.path().display().to_string(), path);
@@ -72,9 +74,9 @@ mod minigrep_args_tests {
         let query = "query";
         let path = "";
 
-        if let Err(error) = MinigrepArgs::new(query, path) {
+        if let Err(error) = MinigrepArgs::build(query, path) {
             match error {
-                MinigrepArgsError::PathNotFound(_) => {}
+                MinigrepArgsError::PathInaccessible(_) => {}
                 _ => {
                     panic!("Error besides PathNotFound returned from MinigrepArgs::new.");
                 }
@@ -89,7 +91,7 @@ mod minigrep_args_tests {
         let query = "query query";
         let path = "test.txt";
 
-        if let Err(error) = MinigrepArgs::new(query, path) {
+        if let Err(error) = MinigrepArgs::build(query, path) {
             match error {
                 MinigrepArgsError::QueryWhitespace => {}
                 _ => {

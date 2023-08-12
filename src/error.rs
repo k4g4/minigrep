@@ -21,7 +21,7 @@ impl From<MinigrepArgsError> for MinigrepError {
 impl fmt::Debug for MinigrepError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::BadArgs(minigrep_args_error) => write!(f, "{minigrep_args_error:?}"),
+            Self::BadArgs(args_error) => write!(f, "{args_error:?}"),
             Self::IoError(io_error) => write!(f, "{io_error}"),
             Self::NoResults => write!(f, "No results found."),
         }
@@ -32,7 +32,7 @@ pub enum MinigrepArgsError {
     QueryMissing,
     PathMissing,
     QueryWhitespace,
-    PathNotFound(PathBuf),
+    PathInaccessible(PathBuf),
 }
 
 impl fmt::Debug for MinigrepArgsError {
@@ -41,7 +41,9 @@ impl fmt::Debug for MinigrepArgsError {
             Self::QueryMissing => write!(f, "Provide a search query."),
             Self::PathMissing => write!(f, "Provide a file path."),
             Self::QueryWhitespace => write!(f, "Search query cannot include whitespace."),
-            Self::PathNotFound(path) => write!(f, "Could not find path '{}'.", path.display()),
+            Self::PathInaccessible(path) => {
+                write!(f, "Could not access path '{}'.", path.display())
+            }
         }
     }
 }
