@@ -5,13 +5,18 @@ pub mod results;
 use args::MinigrepArgs;
 use error::MinigrepError;
 use results::MinigrepResults;
-use std::{fs::File, io::Read, path::Path, str};
+use std::{
+    fs::File,
+    io::{self, Read},
+    path::{Path, PathBuf},
+    str,
+};
 
 pub fn run(args: MinigrepArgs) -> Result<MinigrepResults, MinigrepError> {
     let mut results = MinigrepResults::new(args.quiet());
 
     if args.paths().is_empty() {
-        // read from stdin
+        search_stdin(&args, &mut results)?;
     }
 
     for path in args.paths() {
@@ -29,48 +34,55 @@ pub fn run(args: MinigrepArgs) -> Result<MinigrepResults, MinigrepError> {
     Ok(results)
 }
 
-fn search<T>(data_stream: T, args: &MinigrepArgs) -> Result<Vec<String>, MinigrepError>
+pub fn search<T>(reader: T, query: &str, ignore_case: bool) -> Result<Vec<String>, MinigrepError>
 where
     T: Read,
 {
-    const BUF_SIZE: usize = 4 * 1024;
+    const BUF_SIZE: usize = 1;
     const CURR_LINE_SIZE: usize = 256;
     let mut findings = Vec::<String>::new();
-    let query_bytes = args.query().as_bytes();
     let mut contents = String::with_capacity(BUF_SIZE);
-    let mut take = data_stream.take(BUF_SIZE as u64);
+    let mut take = reader.take(BUF_SIZE as u64);
     let mut current_line = Vec::<u8>::with_capacity(CURR_LINE_SIZE);
+    let query_bytes = query.as_bytes();
     let mut query_remainder = query_bytes;
-    let mut in_query = false;
+    let mut inside_query = false;
     let mut query_found = false;
 
-    loop {
-        if take.read_to_string(&mut contents)? == 0 {
-            break;
-        }
+    while take.read_to_string(&mut contents)? > 0 {
         for &byte in contents.as_bytes() {
-            if byte == b'\n' {
-                if query_found {
-                    findings.push(str::from_utf8(&current_line)?.to_string());
-                    query_found = false;
-                    in_query = false;
+            match byte {
+                b'\n' => {
+                    if query_found {
+                        findings.push(str::from_utf8(&current_line)?.to_string());
+                        query_found = false;
+                        inside_query = false;
+                    }
+                    if inside_query {
+                        current_line.extend_from_slice(b"\\n");
+                    } else {
+                        current_line.clear();
+                    }
                 }
-                if in_query {
-                    current_line.extend_from_slice(b"\\n");
-                } else {
-                    current_line.clear();
+                b'\r' => {
+                    current_line.extend_from_slice(b"\\r");
                 }
-            } else {
-                current_line.push(byte);
+                _ => {
+                    current_line.push(byte);
+                }
             }
 
-            if query_remainder[0] == byte {
-                in_query = true;
-                query_remainder = &query_remainder[1..];
+            inside_query = if ignore_case {
+                query_remainder[0].eq_ignore_ascii_case(&byte)
             } else {
-                in_query = false;
-                query_remainder = query_bytes;
-            }
+                query_remainder[0] == byte
+            };
+
+            query_remainder = if inside_query {
+                &query_remainder[1..]
+            } else {
+                query_bytes
+            };
 
             if query_remainder.is_empty() {
                 query_found = true;
@@ -93,7 +105,7 @@ fn search_file(
     results: &mut MinigrepResults,
 ) -> Result<(), MinigrepError> {
     let file = File::open(file_path)?;
-    let file_findings = search(file, args)?;
+    let file_findings = search(file, args.query(), args.ignore_case())?;
     results.add_findings(file_path, file_findings);
 
     Ok(())
@@ -118,19 +130,40 @@ fn search_dir(
     Ok(())
 }
 
+fn search_stdin(args: &MinigrepArgs, results: &mut MinigrepResults) -> Result<(), MinigrepError> {
+    let stdin = io::stdin().lock();
+    let stdin_findings = search(stdin, args.query(), args.ignore_case())?;
+    results.add_findings(&PathBuf::from("stdin"), stdin_findings);
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod run_tests {
     use super::*;
-    use std::{io::Cursor, path::PathBuf};
+    use std::io::Cursor;
 
     #[test]
     fn search_succeeds() -> Result<(), MinigrepError> {
         let data = "The quick brown fox\njumps over\nthe lazy dog";
         let cursor = Cursor::new(data);
-        let args = MinigrepArgs::build("\njumps", &["test.txt"], true)?;
-
-        let findings = search(cursor, &args)?;
+        let findings = search(cursor, "\njumps", false)?;
         assert_eq!(findings, vec!["jumps over"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn search_ignore_case_succeeds() -> Result<(), MinigrepError> {
+        let data = "The quick brown fox\njumps over\nthe lazy dog";
+        let cursor = Cursor::new(data);
+        let findings = search(cursor, "BROWN FOX", true)?;
+        assert_eq!(findings, vec!["The quick brown fox"]);
+
+        let data = "The quick brown fox\njumps over\nthe Lazy Dog";
+        let cursor = Cursor::new(data);
+        let findings = search(cursor, "lazy dog", true)?;
+        assert_eq!(findings, vec!["the Lazy Dog"]);
 
         Ok(())
     }
@@ -139,7 +172,8 @@ mod run_tests {
     fn search_file_succeeds() -> Result<(), MinigrepError> {
         let file_path = "test.txt";
         let path_buf = PathBuf::from(file_path);
-        let args = MinigrepArgs::build("dreary", &[file_path], true)?;
+        let mut args = MinigrepArgs::build("dreary", &[file_path])?;
+        args.set_flags(true, false);
         let mut results = MinigrepResults::new(false);
         search_file(args.paths()[0].as_path(), &args, &mut results)?;
 
@@ -154,7 +188,8 @@ mod run_tests {
 
     #[test]
     fn search_dir_succeeds() -> Result<(), MinigrepError> {
-        let args = MinigrepArgs::build("dreary", &["test_dir"], true)?;
+        let mut args = MinigrepArgs::build("dreary", &["test_dir"])?;
+        args.set_flags(true, false);
         let mut results = MinigrepResults::new(false);
         search_dir(args.paths()[0].as_path(), &args, &mut results)?;
 
@@ -176,7 +211,8 @@ mod run_tests {
     }
 }
 
-pub const HELP: &str = "Usage: minigrep [OPTION]... PATTERN [FILE]...
+pub const HELP: &str = "\
+Usage: minigrep [OPTION]... PATTERN [FILE]...
 Search for PATTERNS in each file or directory provided.
 Example: minigrep 'hello world' main.rs tests/
 

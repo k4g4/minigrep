@@ -2,6 +2,7 @@ use std::{fmt, io, path::PathBuf, str::Utf8Error};
 
 pub enum MinigrepError {
     QueryMissing,
+    UnknownArgument(String),
     PathInaccessible(PathBuf),
     IoError(io::Error),
     Utf8Error(Utf8Error),
@@ -25,6 +26,7 @@ impl fmt::Debug for MinigrepError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::QueryMissing => write!(f, "Provide a search phrase. Use --help."),
+            Self::UnknownArgument(arg) => write!(f, "Unknown argument '{arg}'"),
             Self::PathInaccessible(path) => {
                 write!(f, "Could not access path '{}'.", path.display())
             }

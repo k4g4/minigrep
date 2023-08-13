@@ -6,15 +6,17 @@ pub struct MinigrepArgs {
     paths: Vec<PathBuf>,
     quiet: bool,
     recursive: bool,
+    ignore_case: bool,
 }
 
 impl MinigrepArgs {
-    pub fn build(query: &str, paths: &[&str], recursive: bool) -> Result<Self, MinigrepError> {
+    pub fn build(query: &str, paths: &[&str]) -> Result<Self, MinigrepError> {
         Self {
             query: String::from(query),
             paths: Vec::<PathBuf>::from_iter(paths.iter().map(PathBuf::from)),
             quiet: false,
-            recursive,
+            recursive: false,
+            ignore_case: false,
         }
         .validate()
     }
@@ -48,16 +50,25 @@ impl MinigrepArgs {
 
         let mut quiet = false;
         let mut recursive = false;
-        for option in options {
-            if ["-q", "--quiet"].contains(&option.as_str()) {
-                quiet = true;
-            }
-            if ["-r", "--recursive"].contains(&option.as_str()) {
-                recursive = true;
-            }
-            if ["-qr", "-rq"].contains(&option.as_str()) {
-                quiet = true;
-                recursive = true;
+        let mut ignore_case = false;
+        for option_group in options {
+            if option_group.starts_with("--") {
+                match option_group.as_str() {
+                    "--quiet" => quiet = true,
+                    "--recursive" => recursive = true,
+                    "--ignore-case" => ignore_case = true,
+                    _ => return Err(MinigrepError::UnknownArgument(option_group)),
+                }
+            } else {
+                let option_letters = &option_group[1..];
+                for option_letter in option_letters.chars() {
+                    match option_letter {
+                        'q' => quiet = true,
+                        'r' => recursive = true,
+                        'i' => ignore_case = true,
+                        _ => return Err(MinigrepError::UnknownArgument(option_letter.to_string())),
+                    }
+                }
             }
         }
 
@@ -66,6 +77,7 @@ impl MinigrepArgs {
             paths,
             quiet,
             recursive,
+            ignore_case,
         }
         .validate()
     }
@@ -79,6 +91,11 @@ impl MinigrepArgs {
         }
 
         Ok(self)
+    }
+
+    pub fn set_flags(&mut self, recursive: bool, ignore_case: bool) {
+        self.recursive = recursive;
+        self.ignore_case = ignore_case;
     }
 
     pub fn query(&self) -> &str {
@@ -96,6 +113,10 @@ impl MinigrepArgs {
     pub fn recursive(&self) -> bool {
         self.recursive
     }
+
+    pub fn ignore_case(&self) -> bool {
+        self.ignore_case
+    }
 }
 
 #[cfg(test)]
@@ -106,7 +127,8 @@ mod minigrep_args_tests {
     fn minigrep_args_succeeds() -> Result<(), MinigrepError> {
         let query = "query";
         let paths = ["test.txt"];
-        let args = MinigrepArgs::build(query, &paths, true)?;
+        let mut args = MinigrepArgs::build(query, &paths)?;
+        args.set_flags(true, false);
 
         assert_eq!(args.query(), query);
         assert_eq!(args.paths()[0].as_os_str(), paths[0]);
@@ -126,7 +148,7 @@ mod minigrep_args_tests {
         let query = "query";
         let paths = [""];
 
-        if let Err(error) = MinigrepArgs::build(query, &paths, true) {
+        if let Err(error) = MinigrepArgs::build(query, &paths) {
             match error {
                 MinigrepError::PathInaccessible(_) => {}
                 _ => {

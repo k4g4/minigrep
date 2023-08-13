@@ -57,12 +57,11 @@ impl Debug for MinigrepResults {
             writeln!(f, "Total lines matched: {}", total)?;
         }
         for (file_path, findings_list) in &self.findings {
-            writeln!(f)?;
             if !self.quiet {
                 if findings_list.is_empty() {
-                    writeln!(f, "No results in {}", file_path.display())?;
+                    writeln!(f, "\nNo results in {}", file_path.display())?;
                 } else {
-                    writeln!(f, "{}:", file_path.display())?;
+                    writeln!(f, "\n{}:", file_path.display())?;
                 }
             }
             for finding in findings_list {
