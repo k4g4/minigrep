@@ -8,7 +8,7 @@ use minigrep::HELP;
 fn main() -> Result<(), MinigrepError> {
     let env_args = env::args().skip(1);
 
-    let args = match MinigrepArgs::from_arg_strings(env_args) {
+    let args = match MinigrepArgs::from_env_args(env_args) {
         Ok(args) => args,
         Err(err) => match err {
             MinigrepError::Help => {

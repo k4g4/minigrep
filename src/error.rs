@@ -30,8 +30,8 @@ impl fmt::Debug for MinigrepError {
             Self::PathInaccessible(path) => {
                 write!(f, "Could not access path '{}'.", path.display())
             }
-            Self::IoError(io_error) => write!(f, "{io_error}"),
-            Self::Utf8Error(utf8_error) => write!(f, "{utf8_error}"),
+            Self::IoError(error) => write!(f, "{error}"),
+            Self::Utf8Error(error) => write!(f, "{error}"),
             Self::NoResults => write!(f, "No results found."),
             Self::Help => Ok(()),
         }

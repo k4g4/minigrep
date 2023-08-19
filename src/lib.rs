@@ -72,7 +72,7 @@ where
                 }
             }
 
-            inside_query = if ignore_case {
+            inside_query = if ignore_case && byte.is_ascii() {
                 query_remainder[0].eq_ignore_ascii_case(&byte)
             } else {
                 query_remainder[0] == byte

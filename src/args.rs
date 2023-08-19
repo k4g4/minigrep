@@ -1,5 +1,5 @@
 use crate::error::MinigrepError;
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 
 pub struct MinigrepArgs {
     query: String,
@@ -21,16 +21,15 @@ impl MinigrepArgs {
         .validate()
     }
 
-    pub fn from_arg_strings<T>(args: T) -> Result<Self, MinigrepError>
+    pub fn from_env_args<T>(mut args: T) -> Result<Self, MinigrepError>
     where
-        T: IntoIterator<Item = String>,
+        T: Iterator<Item = String>,
     {
         let mut options = vec![];
         let mut query = String::new();
         let mut paths = Vec::<PathBuf>::new();
-        let mut args_iter = args.into_iter();
 
-        while let Some(arg) = args_iter.next() {
+        while let Some(arg) = args.next() {
             if ["-h", "--help"].contains(&arg.as_str()) {
                 return Err(MinigrepError::Help);
             }
@@ -39,7 +38,7 @@ impl MinigrepArgs {
             } else {
                 // all options have been read, just query and path args remaining
                 query = arg;
-                paths.extend(args_iter.map(PathBuf::from));
+                paths.extend(args.map(PathBuf::from));
                 break;
             }
         }
@@ -71,6 +70,8 @@ impl MinigrepArgs {
                 }
             }
         }
+
+        ignore_case |= env::var("IGNORE_CASE").is_ok();
 
         Self {
             query,
@@ -134,7 +135,7 @@ mod minigrep_args_tests {
         assert_eq!(args.paths()[0].as_os_str(), paths[0]);
 
         let args = ["query", "test.txt", "test_dir"];
-        let args = MinigrepArgs::from_arg_strings(&mut args.iter().map(|&x| x.to_string()))?;
+        let args = MinigrepArgs::from_env_args(&mut args.iter().map(|&x| x.to_string()))?;
 
         assert_eq!(args.query(), "query");
         assert_eq!(args.paths()[0].as_os_str(), "test.txt");
